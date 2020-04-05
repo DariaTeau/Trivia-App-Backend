@@ -1,0 +1,6 @@
+runtime: python37
+entrypoint: gunicorn -b :8080 api:app
+runtime_config: 
+  python_version: 3
+beta_settings:
+  cloud_sql_instances: firsttry-272817:europe-west3:first-instance 
