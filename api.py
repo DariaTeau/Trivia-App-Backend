@@ -34,8 +34,9 @@ def index():
 @app.route('/api/has_user', methods=['GET'])
 def has_user():
 	username = request.args.get("username")
+	password = request.args.get("password")
 	with db.connect() as conn:
-		sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(username)
+		sql = "SELECT * FROM `Users` WHERE `username` = '{}' AND `password` = '{}'".format(username, password)
 		#sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(user)
 		result = conn.execute(sql).fetchall()
 		if result:
@@ -60,7 +61,7 @@ def create_account():
 		if result:
 			return "{} already exists".format(j['username'])
 		
-		sql = "INSERT INTO `Users` (`username`, `points`) VALUES ('{}', '{}')". format(j["username"], j["points"])
+		sql = "INSERT INTO `Users` (`username`, `password`, `points`) VALUES ('{}', '{}', '{}')". format(j["username"], j["password"], j["points"])
 		conn.execute(sql)
 
 	#db.commit()
