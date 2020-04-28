@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from urllib.parse import parse_qs
 import pymysql
 import json
+import re
 import sqlalchemy
 import os
 
@@ -48,6 +49,8 @@ class Room:
 games = {}
 rooms = {}
 next_id = 0
+pattern = re.compile("[A-Za-z0-9\-]+")
+
 
 # root
 @app.route("/")
@@ -64,14 +67,15 @@ def index():
 def has_user():
 	username = request.args.get("username")
 	password = request.args.get("password")
-	with db.connect() as conn:
-	#with db.cursor() as conn:
-		sql = "SELECT * FROM `Users` WHERE `username` = '{}' AND `password` = '{}'".format(username, password)
-		#sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(user)
-		result = conn.execute(sql).fetchall()
-		if result:
-			return "%s exists" % username
-			#return "%s already exists" % user
+	if bool(pattern.search(username)) and bool(pattern.search(password)):
+		with db.connect() as conn:
+		#with db.cursor() as conn:
+			sql = "SELECT * FROM `Users` WHERE `username` = '{}' AND `password` = '{}'".format(username, password)
+			#sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(user)
+			result = conn.execute(sql).fetchall()
+			if result:
+				return "%s exists" % username
+				#return "%s already exists" % user
 	return "%s not found" % username 
 	#return "%s not found" % user
 
@@ -82,7 +86,7 @@ def create_account():
 	s = (request.get_data().decode('utf-8'))
 	j = json.loads(s)
 	print(j)
-	if len(j["username"]) == 0:
+	if not bool(pattern.search(j["username"])):
 		return "Invalid input"
 
 	with db.connect() as conn:
@@ -192,70 +196,6 @@ def get_question():
 	for i in range(5):
 		result["{}".format(i)] = curr.questions[i]
 	return jsonify(result)
-
-
-# @app.route('/api/get_question', methods=['GET'])
-# def get_question():
-# 	idx_tmp = request.args.get("id")
-# 	username = request.args.get("username")
-# 	idx = int(idx_tmp)
-# 	if idx in games:
-# 		curr_game = games[idx]
-# 		with db.connect() as conn:
-# 		#with db.cursor() as conn:
-# 			sql = "SELECT id, question FROM `Questions` WHERE `domain_id` = {} AND `id` NOT IN ({}, {}, {}, {}) ORDER BY RAND() LIMIT 1".format(curr_game.domain, curr_game.q1, curr_game.q2, curr_game.q3, curr_game.q4)
-# 			result = conn.execute(sql).fetchall()
-# 			# conn.execute(sql)
-# 			# result = conn.fetchall()
-# 			if result:
-# 				print(result)
-# 				res = result[0]
-# 				if games[idx].count == 1:
-# 					games[idx].q1 = res["id"]
-# 				if games[idx].count == 2:
-# 					games[idx].q2 = res["id"]
-# 				if games[idx].count == 3:
-# 					games[idx].q3 = res["id"]
-# 				if games[idx].count == 4:
-# 					games[idx].q4 = res["id"]
-# 				games[idx].count += 1
-# 				#first_part = "question: {} ".format(res["question"])
-# 				response = {}
-# 				response["question"] = res["question"]
-# 				sql = "SELECT * FROM `Answers` WHERE `question_id` = {}".format(res["id"])
-# 				ans = conn.execute(sql).fetchall()
-# 				# conn.execute(sql)
-# 				# ans = conn.fetchall()
-# 				count = 0
-# 				for a in ans:
-# 					if a["is_right"]:
-# 						#tmp = "right: {} ".format(a["answer"])
-# 						response["right"] = a["answer"]
-					
-# 					#tmp = "answer{}: {} ".format(count, a["answer"])
-# 					response["answer{}".format(count)] = a["answer"]
-# 					count = count + 1
-# 					#first_part += tmp
-# 				print(response)
-# 				return jsonify(response)
-# 	else:
-# 		curr_room = rooms[idx]
-# 		if username == curr_room.friend:
-# 			if curr_room.count_f < 5:
-# 				response = curr_room.questions[curr_room.count_f]
-# 				rooms[idx].count_f += 1
-# 			else:
-# 				response = curr_room.questions[4]
-# 		else:
-# 			if curr_room.count_c < 5:
-# 				response = curr_room.questions[curr_room.count_c]
-# 				rooms[idx].count_c += 1
-# 			else:
-# 				response = curr_room.questions[4]
-
-# 		return response
-
-# 	return "Question not found"
 
 @app.route('/api/game_done', methods=['POST'])
 def game_done():
@@ -462,14 +402,17 @@ def add_friend():
 	#with db.cursor() as conn:
 		sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(j["friend"])
 		result = conn.execute(sql).fetchall()
-		# conn.execute(sql)
-		# result = conn.fetchall()
 		if result:
-			sql = "INSERT INTO `Friends` (`user_name`, `friend_name`) VALUES ('{}', '{}')".format(j["username"], j["friend"])
-			conn.execute(sql)
-			sql = "INSERT INTO `Friends` (`user_name`, `friend_name`) VALUES ('{}', '{}')".format(j["friend"], j["username"])
-			conn.execute(sql)
-			return "Friend added"
+			sql = "SELECT * FROM `Friends` WHERE `user_name` = '{}' and `friend_name` = '{}'".format(j["username"], j["friend"])
+			exists = conn.execute(sql).fetchall()
+			if not exists:
+				# conn.execute(sql)
+				# result = conn.fetchall()
+				sql = "INSERT INTO `Friends` (`user_name`, `friend_name`) VALUES ('{}', '{}')".format(j["username"], j["friend"])
+				conn.execute(sql)
+				sql = "INSERT INTO `Friends` (`user_name`, `friend_name`) VALUES ('{}', '{}')".format(j["friend"], j["username"])
+				conn.execute(sql)
+				return "Friend added"
 		return "{} is not a user".format(j["friend"])
 
 @app.route('/api/get_friends', methods=['GET'])
