@@ -30,9 +30,23 @@ class Game:
 	def __init__(self, username, domain):
 		self.username = username
 		self.domain = domain
-		self.last_q = -1
+		self.questions = {}
+		self.count = 0
+class Room:
+	def __init__(self, username, domain):
+		self.creator = username
+		self.friend = ""
+		self.domain = domain
+		self.questions = {}
+		self.count_f = 0
+		self.count_c = 0
+		self.players_done = 0
+		self.max_points = 0
+		self.loser_points = 0
+		self.winner = ""
 
 games = {}
+rooms = {}
 next_id = 0
 
 # root
@@ -88,31 +102,25 @@ def create_account():
 @app.route('/api/register_game', methods=['POST'])
 def register_game():
 	s = (request.get_data().decode('utf-8'))
-	j = json.loads(s)
-	print(j)
-	if len(j["username"]) == 0:
-		return "Invalid input"
+	j_tmp = json.loads(s)
+	print(j_tmp)
+	j = j_tmp["nameValuePairs"]
+	# if len(j["username"]) == 0:
+	# 	return "Invalid input"
 	global next_id
-	games[next_id] = Game(j["username"], j["domain"])
-	next_id += 1
-	return "{}".format(next_id - 1)
-
-@app.route('/api/get_question', methods=['GET'])
-def get_question():
-	idx_tmp = request.args.get("id")
-	idx = int(idx_tmp)
-	curr_game = games[idx]
+	m = 0
+	if j["multi"] == "0":
+		games[next_id] = Game(j["username"], j["domain"])
+	else:
+		rooms[next_id] = Room(j["username"], j["domain"])
+		m = 1
 	with db.connect() as conn:
 	#with db.cursor() as conn:
-		sql = "SELECT id, question FROM `Questions` WHERE `domain_id` = {} AND `id` <> {} ORDER BY RAND() LIMIT 1".format(curr_game.domain, curr_game.last_q)
+		sql = "SELECT id, question FROM `Questions` WHERE `domain_id` = {} ORDER BY RAND() LIMIT 5".format(j["domain"])
 		result = conn.execute(sql).fetchall()
 		# conn.execute(sql)
 		# result = conn.fetchall()
-		if result:
-			print(result)
-			res = result[0]
-			games[idx].last_q = res["id"]
-			#first_part = "question: {} ".format(res["question"])
+		for res in result:
 			response = {}
 			response["question"] = res["question"]
 			sql = "SELECT * FROM `Answers` WHERE `question_id` = {}".format(res["id"])
@@ -122,30 +130,384 @@ def get_question():
 			count = 0
 			for a in ans:
 				if a["is_right"]:
-					#tmp = "right: {} ".format(a["answer"])
 					response["right"] = a["answer"]
-				else:
-					#tmp = "answer{}: {} ".format(count, a["answer"])
-					response["answer{}".format(count)] = a["answer"]
-					count = count + 1
-				#first_part += tmp
-			print(response)
-			return jsonify(response)
+				
+				response["answer{}".format(count)] = a["answer"]
+				count = count + 1
+			if m:
+				rooms[next_id].questions[rooms[next_id].count_c] = response
+				rooms[next_id].count_c += 1
+			else:
+				games[next_id].questions[games[next_id].count] = response
+				games[next_id].count += 1
+	next_id += 1
+	return "{}".format(next_id - 1)
 
-		return "Question not found"
+@app.route('/api/get_rooms', methods=['GET'])
+def get_rooms():
+	username = request.args.get("username")
+	final = {}
+	count = 0
+	for key in rooms:
+		room = rooms[key]
+		r = {}
+		if room.friend == "" and room.creator != username:
+			r["creator"] = room.creator
+			r["domain"] = room.domain
+			r["id"] = key
+			final["{}".format(count)] = r
+			count += 1
+	final["no_rooms"] = "{}".format(count)
+	return jsonify(final)
+
+@app.route('/api/choose_room', methods=['POST'])
+def choose_room():
+	s = (request.get_data().decode('utf-8'))
+	j_tmp = json.loads(s)
+	print(j_tmp)
+	j = j_tmp["nameValuePairs"]
+	if rooms[int(j["id"])].friend == "":
+		rooms[int(j["id"])].friend = j["username"]
+		return "done"
+	else:
+		return "room taken"
+
+@app.route('/api/found_opponent', methods=['GET'])
+def found_opponent():
+	idx_tmp = request.args.get("id")
+	idx = int(idx_tmp)
+	if rooms[idx].friend != "":
+		return "Yes"
+	return "No"
+
+@app.route('/api/get_question', methods=['GET'])
+def get_question():
+	idx_tmp = request.args.get("id")
+	idx = int(idx_tmp)
+	if idx in games:
+		curr = games[idx]
+	else:
+		curr = rooms[idx]
+	result = {}
+	for i in range(5):
+		result["{}".format(i)] = curr.questions[i]
+	return jsonify(result)
+
+
+# @app.route('/api/get_question', methods=['GET'])
+# def get_question():
+# 	idx_tmp = request.args.get("id")
+# 	username = request.args.get("username")
+# 	idx = int(idx_tmp)
+# 	if idx in games:
+# 		curr_game = games[idx]
+# 		with db.connect() as conn:
+# 		#with db.cursor() as conn:
+# 			sql = "SELECT id, question FROM `Questions` WHERE `domain_id` = {} AND `id` NOT IN ({}, {}, {}, {}) ORDER BY RAND() LIMIT 1".format(curr_game.domain, curr_game.q1, curr_game.q2, curr_game.q3, curr_game.q4)
+# 			result = conn.execute(sql).fetchall()
+# 			# conn.execute(sql)
+# 			# result = conn.fetchall()
+# 			if result:
+# 				print(result)
+# 				res = result[0]
+# 				if games[idx].count == 1:
+# 					games[idx].q1 = res["id"]
+# 				if games[idx].count == 2:
+# 					games[idx].q2 = res["id"]
+# 				if games[idx].count == 3:
+# 					games[idx].q3 = res["id"]
+# 				if games[idx].count == 4:
+# 					games[idx].q4 = res["id"]
+# 				games[idx].count += 1
+# 				#first_part = "question: {} ".format(res["question"])
+# 				response = {}
+# 				response["question"] = res["question"]
+# 				sql = "SELECT * FROM `Answers` WHERE `question_id` = {}".format(res["id"])
+# 				ans = conn.execute(sql).fetchall()
+# 				# conn.execute(sql)
+# 				# ans = conn.fetchall()
+# 				count = 0
+# 				for a in ans:
+# 					if a["is_right"]:
+# 						#tmp = "right: {} ".format(a["answer"])
+# 						response["right"] = a["answer"]
+					
+# 					#tmp = "answer{}: {} ".format(count, a["answer"])
+# 					response["answer{}".format(count)] = a["answer"]
+# 					count = count + 1
+# 					#first_part += tmp
+# 				print(response)
+# 				return jsonify(response)
+# 	else:
+# 		curr_room = rooms[idx]
+# 		if username == curr_room.friend:
+# 			if curr_room.count_f < 5:
+# 				response = curr_room.questions[curr_room.count_f]
+# 				rooms[idx].count_f += 1
+# 			else:
+# 				response = curr_room.questions[4]
+# 		else:
+# 			if curr_room.count_c < 5:
+# 				response = curr_room.questions[curr_room.count_c]
+# 				rooms[idx].count_c += 1
+# 			else:
+# 				response = curr_room.questions[4]
+
+# 		return response
+
+# 	return "Question not found"
 
 @app.route('/api/game_done', methods=['POST'])
 def game_done():
 	s = (request.get_data().decode('utf-8'))
-	j = json.loads(s)
+	j_tmp = json.loads(s)
+	print(j_tmp)
+	j = j_tmp["nameValuePairs"]
 	idx_tmp = j["id"]
 	idx = int(idx_tmp)
 	with db.connect() as conn:
 	#with db.cursor() as conn:
-		sql = "UPDATE `Users` SET `points` = {} WHERE `username` = '{}'".format(j["points"], games[idx].username)
-		conn.execute(sql)
-	del games[idx]
+		if idx in games:
+			sql = "SELECT points FROM `Users` WHERE `username` = '{}'".format(games[idx].username)
+			result = conn.execute(sql).fetchall()
+			if not result:
+				return "Not a user"
+			res = result[0]
+			points = int(res["points"]) + int(j["points"])
+			sql = "UPDATE `Users` SET `points` = {} WHERE `username` = '{}'".format(points, games[idx].username)
+			conn.execute(sql)
+			del games[idx]
+		else:
+			sql = "SELECT points FROM `Users` WHERE `username` = '{}'".format(j["username"])
+			result = conn.execute(sql).fetchall()
+			# conn.execute(sql)
+			# result = conn.fetchall()
+			if not result:
+				return "Not a user"
+			res = result[0]
+			points = int(res["points"]) + int(j["points"])
+			sql = "UPDATE `Users` SET `points` = {} WHERE `username` = '{}'".format(points, j["username"])
+			conn.execute(sql)
+			if int(j["points"]) > rooms[idx].max_points:
+				rooms[idx].loser_points = rooms[idx].max_points
+				rooms[idx].max_points = int(j["points"])
+				rooms[idx].winner = j["username"]
+			if rooms[idx].players_done:
+				sql = "UPDATE `Users` SET `points` = `points` + {} WHERE `username` = '{}'".format(5, rooms[idx].winner)
+				conn.execute(sql)
+			rooms[idx].players_done += 1
+
+	global next
+	if len(games) == 0 and len(rooms) == 0:
+		next = 0
 	return "Updated game {}".format(idx)
+
+@app.route('/api/get_winner', methods=['GET'])
+def get_winner():
+	idx_tmp = request.args.get("id")
+	idx = int(idx_tmp)
+	if rooms[idx].players_done == 2:
+		j = {}
+		j["winner"] = rooms[idx].winner
+		j["points"] = rooms[idx].max_points
+		j["loser_points"] = rooms[idx].loser_points
+		if rooms[idx].creator == rooms[idx].winner:
+			j["loser"] = rooms[idx].friend
+		else:
+			j["loser"] = rooms[idx].creator
+		rooms[idx].players_done = -1
+		return jsonify(j)
+	else:
+		if rooms[idx].players_done == -1:
+			j = {}
+			j["winner"] = rooms[idx].winner
+			j["points"] = rooms[idx].max_points
+			j["loser_points"] = rooms[idx].loser_points
+			if rooms[idx].creator == rooms[idx].winner:
+				j["loser"] = rooms[idx].friend
+			else:
+				j["loser"] = rooms[idx].creator
+			del rooms[idx]
+			global next
+			if len(games) == 0 and len(rooms) == 0:
+				next = 0
+			return jsonify(j)
+		else:
+			return "Game not done"
+
+@app.route('/api/delete_game', methods=['POST'])
+def delete_game():
+	s = (request.get_data().decode('utf-8'))
+	j_tmp = json.loads(s)
+	j = j_tmp["nameValuePairs"]
+	if int(j["id"]) in rooms:
+		del rooms[int(j["id"])]
+		global next
+		if len(games) == 0 and len(rooms) == 0:
+			next = 0
+		return "Room deleted"
+	return "Room not found"
+
+@app.route('/api/add_question', methods=['POST'])
+def add_question():
+	s = (request.get_data().decode('utf-8'))
+	j = json.loads(s)
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "INSERT INTO `UserQ` (`question`, `domain_id`, `rate`) VALUES ('{}', {}, {})".format(j["question"], int(j["domain"]), 0)
+		conn.execute(sql)
+		sql = "SELECT id from `UserQ` WHERE `question` = '{}'".format(j["question"])
+		result = conn.execute(sql).fetchall()
+		# conn.execute(sql)
+		# result = conn.fetchall()
+		res = result[0]
+		id_q = res["id"]
+		sql = "INSERT INTO `UserA` (`answer`, `q_id`, `is_right`) VALUES ('{}', {}, {})".format(j["answer0"], id_q, 0)
+		conn.execute(sql)
+		sql = "INSERT INTO `UserA` (`answer`, `q_id`, `is_right`) VALUES ('{}', {}, {})".format(j["answer1"], id_q, 0)
+		conn.execute(sql)
+		sql = "INSERT INTO `UserA` (`answer`, `q_id`, `is_right`) VALUES ('{}', {}, {})".format(j["answer2"], id_q, 0)
+		conn.execute(sql)
+		sql = "INSERT INTO `UserA` (`answer`, `q_id`, `is_right`) VALUES ('{}', {}, {})".format(j["right"], id_q, 1)
+		conn.execute(sql)
+
+	return "done"
+
+@app.route('/api/get_suggested_questions', methods=['GET'])
+def get_suggested_questions():
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "SELECT id, question, domain_id FROM `UserQ` WHERE `rate` < 100"
+		result = conn.execute(sql).fetchall()
+		# conn.execute(sql)
+		# result = conn.fetchall()
+		no_q = 0
+		questions = {}
+		for res in result:
+			response = {}
+			response["question"] = res["question"]
+			sql = "SELECT * FROM `UserA` WHERE `q_id` = {}".format(res["id"])
+			ans = conn.execute(sql).fetchall()
+			# conn.execute(sql)
+			# ans = conn.fetchall()
+			for a in ans:
+				if a["is_right"] == 1:
+					response["rightAns"] = a["answer"]
+			response["domain"] = res["domain_id"]
+			questions["{}".format(no_q)] = response
+			no_q += 1
+	
+	return jsonify(questions)
+
+@app.route('/api/rate_question', methods=['POST'])
+def rate_questions():
+	s = (request.get_data().decode('utf-8'))
+	j = json.loads(s)
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "UPDATE `UserQ` SET `rate` = `rate` + 1 WHERE `question` = '{}'".format(j["question"])
+		conn.execute(sql)
+		sql = "SELECT rate from `UserQ` WHERE `question` = '{}'".format(j["question"])
+		result = conn.execute(sql).fetchall()
+		# conn.execute(sql)
+		# result = conn.fetchall()
+		res = result[0]
+		print(result)
+		if res["rate"] == 100:
+			sql = "SELECT (question, domain_id) from `UserQ` WHERE `question` = '{}'".format(j["question"])
+			quest = conn.execute(sql).fetchall()
+			# conn.execute(sql)
+			# quest = conn.fetchall()
+			q = quest[0]
+			sql = "INSERT INTO `Questions` (`question`, `domain_id`) VALUES ('{}', {})".format(j["question"], int(q["domain_id"]))
+			conn.execute(sql)
+			sql = "SELECT answer, is_right FROM `UserA` WHERE `q_id` = {}".format(int(q["domain_id"]))
+			ans = conn.execute(sql).fetchall()
+			# conn.execute(sql)
+			# ans = conn.fetchall()
+			sql = "SELECT id from `Questions` WHERE `question` = '{}'".format(j["question"])
+			result2 = conn.execute(sql).fetchall()
+			# conn.execute(sql)
+			# result2 = conn.fetchall()
+			# conn.execute(sql)
+			# result = conn.fetchall()
+			res2 = result2[0]
+			id_q = res2["id"]
+			sql = "INSERT INTO `Answers` (`answer`, `question_id`, `is_right`) VALUES ('{}', {}, {})".format(ans[0]["answer"], id_q, ans[0]["is_right"])
+			conn.execute(sql)
+			sql = "INSERT INTO `Answers` (`answer`, `question_id`, `is_right`) VALUES ('{}', {}, {})".format(ans[1]["answer"], id_q, ans[1]["is_right"])
+			conn.execute(sql)
+			sql = "INSERT INTO `Answers` (`answer`, `question_id`, `is_right`) VALUES ('{}', {}, {})".format(ans[2]["answer"], id_q, ans[2]["is_right"])
+			conn.execute(sql)
+			sql = "INSERT INTO `Answers` (`answer`, `question_id`, `is_right`) VALUES ('{}', {}, {})".format(ans[3]["answer"], id_q, ans[3]["is_right"])
+			conn.execute(sql)
+			return "Added to game"
+	return "Rated"
+	
+@app.route('/api/unrate_question', methods=['POST'])
+def unrate_questions():
+	s = (request.get_data().decode('utf-8'))
+	j = json.loads(s)
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "UPDATE `UserQ` SET `rate` = `rate` - 1 WHERE `question` = '{}'".format(j["question"])
+		conn.execute(sql)
+	return "Unrated"
+
+@app.route('/api/add_friend', methods=['POST'])
+def add_friend():
+	s = (request.get_data().decode('utf-8'))
+	j = json.loads(s)
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(j["friend"])
+		result = conn.execute(sql).fetchall()
+		# conn.execute(sql)
+		# result = conn.fetchall()
+		if result:
+			sql = "INSERT INTO `Friends` (`user_name`, `friend_name`) VALUES ('{}', '{}')".format(j["username"], j["friend"])
+			conn.execute(sql)
+			sql = "INSERT INTO `Friends` (`user_name`, `friend_name`) VALUES ('{}', '{}')".format(j["friend"], j["username"])
+			conn.execute(sql)
+			return "Friend added"
+		return "{} is not a user".format(j["friend"])
+
+@app.route('/api/get_friends', methods=['GET'])
+def get_friends():
+	username = request.args.get("username")
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "SELECT friend_name, points FROM `Friends`, `Users` WHERE `user_name` = '{}' and `friend_name` = Users.`username` ORDER BY points".format(username)
+		result = conn.execute(sql).fetchall()
+		# conn.execute(sql)
+		# result = conn.fetchall()
+		fr_list = {}
+		count = 0
+		for r in result:
+			print(r["friend_name"])
+			fr_list["{}".format(count)] = r["friend_name"]
+			fr_list["points{}".format(count)] = r["points"]
+			count += 1
+
+	return fr_list
+
+@app.route('/api/profile', methods=['GET'])
+def profile():
+	username = request.args.get("username")
+	with db.connect() as conn:
+	#with db.cursor() as conn:
+		sql = "SELECT points FROM `Users` WHERE `username` = '{}'".format(username)
+		#sql = "SELECT * FROM `Users` WHERE `username` = '{}'".format(user)
+		result = conn.execute(sql).fetchall()
+		user_profile = {}
+		if result:
+			res = result[0]
+			user_profile["points"] = res["points"]
+			sql = "SELECT COUNT(*) FROM `Friends` WHERE `user_name` = '{}'".format(username)
+			result_2 = conn.execute(sql).fetchall()
+			res2 = result_2[0]
+			user_profile["friends"] = res2["COUNT(*)"]
+	return jsonify(user_profile)
 
 
 # running web app in local machine
